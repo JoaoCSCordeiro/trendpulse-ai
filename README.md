@@ -1,4 +1,4 @@
-# 📈 TrendPulse AI
+# TrendPulse AI
 
 ### Plataforma reativa de análise preditiva de mercados financeiros, orientada a eventos e alimentada por Machine Learning
 
@@ -6,7 +6,7 @@ TrendPulse AI combina um pipeline de Machine Learning em Python com um backend o
 
 ---
 
-## 🏗️ Arquitetura do Sistema
+## Arquitetura do Sistema
 
 O sistema está dividido em três componentes independentes, comunicando de forma assíncrona e desacoplada:
 
@@ -49,7 +49,7 @@ flowchart LR
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## Tecnologias Utilizadas
 
 | Camada | Tecnologia | Finalidade |
 |---|---|---|
@@ -64,33 +64,13 @@ flowchart LR
 
 ---
 
-## 🗺️ Roadmap de Desenvolvimento
-
-**Fase 1 — Fundações (atual)**
-- [x] Estrutura de monorepo
-- [x] Configuração base do Spring Boot (WebSocket + RabbitMQ)
-- [x] Script inicial de ingestão e visualização de dados
-
-**Fase 2 — Inteligência Preditiva**
-- [ ] Treino e serialização de modelos scikit-learn (regressão / séries temporais)
-- [ ] Pipeline de feature engineering com indicadores adicionais (RSI, MACD, Bandas de Bollinger)
-- [ ] Publicação real das previsões via `pika` para o RabbitMQ
-
-**Fase 3 — Tempo Real e Escala**
-- [ ] Consumo de dados de mercado em streaming (near real-time)
-- [ ] Persistência histórica de previsões (PostgreSQL / TimescaleDB)
-- [ ] Autenticação e gestão de múltiplos utilizadores no dashboard
-
-**Fase 4 — Produção**
-- [ ] Containerização completa (Docker Compose: RabbitMQ + Core Backend + ML Engine + Dashboard)
-- [ ] CI/CD (GitHub Actions)
-- [ ] Observabilidade (métricas, logging estruturado, alertas)
-
----
-
 ## Como Executar Localmente
 
 ```bash
+# 0. RabbitMQ (broker de mensageria)
+docker compose up -d
+# UI de gestão disponível em http://localhost:15672 (guest/guest)
+
 # 1. Core Backend
 cd core-backend
 mvn spring-boot:run
@@ -105,10 +85,23 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-> Nota: é necessária uma instância do RabbitMQ em execução (`localhost:5672` por defeito). Pode ser iniciada rapidamente via Docker: `docker run -d -p 5672:5672 -p 15672:15672 rabbitmq:3-management`.
+### Testar o fluxo ponta-a-ponta (Python → RabbitMQ → Java)
+
+Com o RabbitMQ e o Core Backend a correr, publica uma mensagem de teste diretamente sem passar pelo dashboard:
+
+```bash
+cd ml-engine/tests
+python test_rabbitmq_publish.py --symbol AAPL
+```
+
+Deverás ver nos logs do `core-backend` uma linha como:
+
+```
+INFO ... MarketDataListener : Previsão recebida do ML Engine: AAPL -> preço previsto=197.1 (confiança=0.65)
+```
+
+Isto confirma que a mensagem percorreu: `pika` (Python) → exchange `market.predictions.exchange` → queue `market.predictions.queue` → `@RabbitListener` (Java). O mesmo fluxo pode ser acionado a partir da UI do dashboard, no expander "Publicação assíncrona (RabbitMQ)".
 
 ---
-
-
 
 

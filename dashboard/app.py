@@ -20,8 +20,6 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
-
 import pandas as pd
 import pandas_ta as ta
 import plotly.graph_objects as go
@@ -181,52 +179,93 @@ def build_prediction_payload(ticker: str, df: pd.DataFrame) -> PredictionPayload
 # Integração com RabbitMQ (mock)
 # --------------------------------------------------------------------------- #
 
-def publish_to_rabbitmq(payload: PredictionPayload, host: Optional[str] = None) -> bool:
-    """Publica (ou simula publicar) uma previsão na exchange do RabbitMQ.
+RABBITMQ_EXCHANGE = "market.predictions.exchange"
+RABBITMQ_EXCHANGE_TYPE = "topic"
 
-    Esta função está deliberadamente desacoplada de uma ligação real ao
-    broker para permitir a execução do dashboard em ambiente de
-    desenvolvimento sem dependências externas. Para ativar o envio real:
 
-        1. `pip install pika` (já incluído em requirements.txt)
-        2. Substituir o bloco "MOCK" abaixo pela ligação `pika.BlockingConnection`
-           comentada de exemplo.
+def publish_to_rabbitmq(
+    payload: PredictionPayload,
+    host: str = "localhost",
+    port: int = 5672,
+    username: str = "guest",
+    password: str = "guest",
+    timeout: float = 3.0,
+) -> tuple[bool, str]:
+    """Publica uma previsão na exchange do RabbitMQ (`market.predictions.exchange`).
+
+    Estabelece uma ligação real via `pika.BlockingConnection`, declara a
+    exchange (idempotente) e publica a mensagem com a routing key
+    `market.predictions.<symbol>` — a mesma routing key que o
+    `RabbitMQConfig` do Core Backend (Java) usa no bind à queue
+    `market.predictions.queue`.
 
     Args:
         payload: previsão processada, pronta a serializar em JSON.
-        host: endereço do broker RabbitMQ (default: localhost).
+        host: endereço do broker RabbitMQ.
+        port: porta AMQP (default: 5672).
+        username: utilizador do broker.
+        password: password do broker.
+        timeout: timeout de ligação em segundos, para falhar rápido em vez
+            de bloquear a UI do Streamlit indefinidamente.
 
     Returns:
-        True se a publicação (real ou simulada) foi concluída com sucesso.
+        Tuplo (sucesso, mensagem) — a mensagem descreve o resultado ou o
+        erro ocorrido, para ser mostrada diretamente na interface.
     """
+    import pika
+
     message_body = payload.to_json()
 
-    # --- MOCK: substitui esta secção por uma ligação real quando o broker
-    # estiver disponível no ambiente de execução. ---
-    logger.info(
-        "[MOCK RabbitMQ] Exchange='market.predictions.exchange' "
-        "RoutingKey='market.predictions.%s' Payload=%s",
-        payload.symbol,
-        message_body,
-    )
-    return True
+    try:
+        credentials = pika.PlainCredentials(username, password)
+        parameters = pika.ConnectionParameters(
+            host=host,
+            port=port,
+            credentials=credentials,
+            blocked_connection_timeout=timeout,
+            socket_timeout=timeout,
+        )
 
-    # --- Exemplo de implementação real (não executado) ---
-    # import pika
-    # connection = pika.BlockingConnection(
-    #     pika.ConnectionParameters(host=host or "localhost")
-    # )
-    # channel = connection.channel()
-    # channel.exchange_declare(
-    #     exchange="market.predictions.exchange", exchange_type="topic", durable=True
-    # )
-    # channel.basic_publish(
-    #     exchange="market.predictions.exchange",
-    #     routing_key=f"market.predictions.{payload.symbol}",
-    #     body=message_body,
-    # )
-    # connection.close()
-    # return True
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
+
+        channel.exchange_declare(
+            exchange=RABBITMQ_EXCHANGE,
+            exchange_type=RABBITMQ_EXCHANGE_TYPE,
+            durable=True,
+        )
+
+        routing_key = f"market.predictions.{payload.symbol}"
+
+        channel.basic_publish(
+            exchange=RABBITMQ_EXCHANGE,
+            routing_key=routing_key,
+            body=message_body,
+            properties=pika.BasicProperties(
+                content_type="application/json",
+                delivery_mode=pika.DeliveryMode.Persistent,
+            ),
+        )
+
+        connection.close()
+
+        logger.info(
+            "Previsão publicada em '%s' com routing key '%s': %s",
+            RABBITMQ_EXCHANGE,
+            routing_key,
+            message_body,
+        )
+        return True, f"Publicado com sucesso (routing key: `{routing_key}`)."
+
+    except pika.exceptions.AMQPConnectionError as exc:
+        logger.error("Falha ao ligar ao RabbitMQ em %s:%s -> %s", host, port, exc)
+        return False, (
+            f"Não foi possível ligar ao RabbitMQ em {host}:{port}. "
+            "Confirma que o broker está a correr (`docker compose up rabbitmq`)."
+        )
+    except Exception as exc:  # noqa: BLE001 - capturar e mostrar qualquer falha ao utilizador
+        logger.exception("Erro inesperado ao publicar no RabbitMQ")
+        return False, f"Erro inesperado ao publicar: {exc}"
 
 
 # --------------------------------------------------------------------------- #
@@ -306,6 +345,12 @@ def main() -> None:
     st.sidebar.divider()
     st.sidebar.caption("Ingestão → Processamento → Mensageria → WebSocket")
 
+    st.sidebar.subheader("🐇 Ligação RabbitMQ")
+    rabbitmq_host = st.sidebar.text_input("Host", value="localhost")
+    rabbitmq_port = st.sidebar.number_input("Porta", value=5672, min_value=1, max_value=65535)
+    rabbitmq_user = st.sidebar.text_input("Utilizador", value="guest")
+    rabbitmq_pass = st.sidebar.text_input("Password", value="guest", type="password")
+
     st.title(f"{ticker} — Análise Técnica")
 
     try:
@@ -331,15 +376,25 @@ def main() -> None:
     fig = render_candlestick_chart(enriched_data, ticker)
     st.plotly_chart(fig, use_container_width=True)
 
-    with st.expander("📤 Publicação assíncrona (RabbitMQ)"):
+    with st.expander("📤 Publicação assíncrona (RabbitMQ)", expanded=True):
         st.code(payload.to_json(), language="json")
-        if st.button("Publicar previsão na fila"):
-            success = publish_to_rabbitmq(payload)
-            if success:
-                st.success(
-                    "Previsão publicada (modo simulado) na exchange "
-                    "`market.predictions.exchange`."
+        if st.button("Publicar previsão na fila", type="primary"):
+            with st.spinner(f"A ligar a {rabbitmq_host}:{rabbitmq_port}..."):
+                success, message = publish_to_rabbitmq(
+                    payload,
+                    host=rabbitmq_host,
+                    port=int(rabbitmq_port),
+                    username=rabbitmq_user,
+                    password=rabbitmq_pass,
                 )
+            if success:
+                st.success(message)
+                st.caption(
+                    "Verifica os logs do `core-backend` — o `MarketDataListener` "
+                    "deve ter consumido esta mensagem quase instantaneamente."
+                )
+            else:
+                st.error(message)
 
     st.caption(
         "Dados fornecidos por Yahoo Finance via yfinance. "

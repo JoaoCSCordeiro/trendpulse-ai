@@ -1,0 +1,33 @@
+version: "3.9"
+
+# TrendPulse AI - Infraestrutura de mensageria
+#
+# Sobe um broker RabbitMQ local com o plugin de management ativo,
+# permitindo:
+#   - Ligação AMQP na porta 5672 (usada pelo dashboard/pika e pelo core-backend)
+#   - UI de administração em http://localhost:15672 (guest/guest)
+#
+# Uso:
+#   docker compose up -d
+#   docker compose down
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: trendpulse-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+volumes:
+  rabbitmq-data:
