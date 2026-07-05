@@ -1,0 +1,5 @@
+com\trendpulse\core\config\WebSocketConfig.class
+com\trendpulse\core\CoreBackendApplication.class
+com\trendpulse\core\model\PredictionMessage.class
+com\trendpulse\core\listener\MarketDataListener.class
+com\trendpulse\core\config\RabbitMQConfig.class
