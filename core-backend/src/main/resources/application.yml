@@ -17,8 +17,64 @@ spring:
           initial-interval: 1000
           max-attempts: 5
           multiplier: 2.0
+        # Após esgotar as tentativas de retry, a mensagem é REJEITADA (não
+        # recolocada na queue principal). Como a queue está associada a uma
+        # dead-letter-exchange (ver RabbitMQConfig), o broker reencaminha-a
+        # automaticamente para a DLQ em vez de a descartar ou de a mensagem
+        # ficar presa num loop infinito de reprocessamento.
+        default-requeue-rejected: false
+
+  # Persistência: TimescaleDB é uma extensão do PostgreSQL, por isso o driver
+  # e a URL de ligação são exatamente os de um PostgreSQL normal.
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:trendpulse}
+    username: ${POSTGRES_USER:trendpulse}
+    password: ${POSTGRES_PASSWORD:trendpulse}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      # Pool pequeno é suficiente para este volume de escrita (uma previsão
+      # de cada vez, vinda do listener RabbitMQ) — evita esgotar ligações
+      # no Postgres em ambientes de desenvolvimento com recursos limitados.
+      maximum-pool-size: 5
+
+  jpa:
+    hibernate:
+      # 'update': o Hibernate cria/atualiza o schema relacional a partir das
+      # entidades JPA. A conversão para hypertable TimescaleDB (que o
+      # Hibernate não sabe fazer) fica a cargo do TimescaleDbInitializer.
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+    open-in-view: false
+
+# Actuator: health checks e métricas para observabilidade operacional.
+# health -> usado por orquestradores (Docker healthcheck, Kubernetes) para
+#           decidir se o serviço está pronto/vivo. Inclui automaticamente o
+#           estado do RabbitMQ e da base de dados (db) como indicadores.
+# info    -> metadados estáticos da aplicação.
+# metrics -> contadores/gauges para dashboards de monitorização (Prometheus/Grafana).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    rabbit:
+      enabled: true
+    db:
+      enabled: true
 
 logging:
   level:
     com.trendpulse: INFO
     org.springframework.amqp: WARN
+    org.hibernate.SQL: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

@@ -1,23 +1,28 @@
 version: "3.9"
 
-# TrendPulse AI - Infraestrutura de mensageria
+# TrendPulse AI - Stack completa
 #
-# Sobe um broker RabbitMQ local com o plugin de management ativo,
-# permitindo:
-#   - Ligação AMQP na porta 5672 (usada pelo dashboard/pika e pelo core-backend)
-#   - UI de administração em http://localhost:15672 (guest/guest)
+# Serviços:
+#   rabbitmq     - broker de mensageria (AMQP + UI de management)
+#   timescaledb  - PostgreSQL + extensão TimescaleDB (histórico de previsões)
+#   core-backend - Spring Boot: consome RabbitMQ, persiste em TimescaleDB, expõe WebSocket /ws-market
+#   ml-trainer   - treina o modelo scikit-learn uma vez e termina (job, não daemon)
+#   dashboard    - Streamlit: UI, publica previsões no RabbitMQ, lê o modelo treinado
 #
 # Uso:
-#   docker compose up -d
-#   docker compose down
+#   docker compose up -d --build                # sobe rabbitmq + timescaledb + core-backend + dashboard
+#   docker compose --profile training run --rm ml-trainer   # treina/retreina o modelo
+#   docker compose logs -f core-backend
+#   docker compose down                          # -v para também apagar volumes (incl. histórico de previsões)
 
 services:
+
   rabbitmq:
     image: rabbitmq:3-management
     container_name: trendpulse-rabbitmq
     ports:
       - "5672:5672"   # AMQP
-      - "15672:15672" # Management UI
+      - "15672:15672" # Management UI (http://localhost:15672, guest/guest)
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
@@ -28,6 +33,101 @@ services:
       retries: 5
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - trendpulse-net
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: trendpulse-timescaledb
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: trendpulse
+      POSTGRES_USER: trendpulse
+      POSTGRES_PASSWORD: trendpulse
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trendpulse -d trendpulse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+    networks:
+      - trendpulse-net
+
+  core-backend:
+    build:
+      context: ./core-backend
+      dockerfile: Dockerfile
+    container_name: trendpulse-core-backend
+    ports:
+      - "8080:8080"
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASS: guest
+      POSTGRES_HOST: timescaledb
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: trendpulse
+      POSTGRES_USER: trendpulse
+      POSTGRES_PASSWORD: trendpulse
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - trendpulse-net
+
+  # Job de treino: corre uma vez, guarda o modelo no volume partilhado, e termina.
+  # Fica atrás de um profile para não subir automaticamente com `docker compose up`.
+  ml-trainer:
+    build:
+      context: ./ml-engine
+      dockerfile: Dockerfile
+    container_name: trendpulse-ml-trainer
+    volumes:
+      - ml-models:/app/models
+    networks:
+      - trendpulse-net
+    profiles:
+      - training
+
+  dashboard:
+    build:
+      context: .                       # contexto = raiz do monorepo (ver dashboard/Dockerfile)
+      dockerfile: dashboard/Dockerfile
+    container_name: trendpulse-dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      RABBITMQ_HOST: rabbitmq          # visto de dentro da rede Docker
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASS: guest
+      BACKEND_PUBLIC_URL: http://localhost:8080  # visto do browser do utilizador (fora do Docker)
+    volumes:
+      - ml-models:/app/ml-engine/models  # partilha o modelo treinado pelo ml-trainer
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      core-backend:
+        condition: service_healthy
+    networks:
+      - trendpulse-net
+
+networks:
+  trendpulse-net:
+    driver: bridge
 
 volumes:
   rabbitmq-data:
+  timescale-data:
+  ml-models:

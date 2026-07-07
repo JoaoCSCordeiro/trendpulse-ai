@@ -3,6 +3,7 @@ package com.trendpulse.core.config;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
@@ -17,6 +18,14 @@ import org.springframework.context.annotation.Configuration;
  * {@code market.predictions.<symbol>}. O Core Backend (Java) consome estas
  * mensagens através da queue {@code market.predictions.queue} e distribui-as
  * em tempo real para os clientes ligados via WebSocket.
+ * <p>
+ * <b>Resiliência:</b> a queue principal está configurada com uma Dead-Letter
+ * Exchange (DLX). Combinado com a política de retry definida em
+ * {@code application.yml} ({@code spring.rabbitmq.listener.simple.retry}),
+ * uma mensagem que falhe repetidamente no processamento (ex: JSON malformado,
+ * exceção no listener) é, após esgotar as tentativas, rejeitada e
+ * automaticamente reencaminhada para a {@code market.predictions.dlq} —
+ * em vez de ser perdida silenciosamente ou bloquear a queue principal.
  */
 @Configuration
 public class RabbitMQConfig {
@@ -25,6 +34,12 @@ public class RabbitMQConfig {
     public static final String QUEUE_NAME = "market.predictions.queue";
     public static final String ROUTING_KEY = "market.predictions.*";
 
+    public static final String DLX_EXCHANGE_NAME = "market.predictions.dlx";
+    public static final String DLQ_QUEUE_NAME = "market.predictions.dlq";
+    public static final String DLQ_ROUTING_KEY = "market.predictions.dead";
+
+    // --- Exchange e queue principais ---
+
     @Bean
     public TopicExchange predictionsExchange() {
         return new TopicExchange(EXCHANGE_NAME, true, false);
@@ -32,9 +47,13 @@ public class RabbitMQConfig {
 
     @Bean
     public Queue predictionsQueue() {
-        // Queue durável: sobrevive a reinícios do broker, evitando perda
-        // de previsões geradas pelo ML Engine.
-        return new Queue(QUEUE_NAME, true);
+        // Queue durável (sobrevive a reinícios do broker) e associada a uma
+        // dead-letter exchange: mensagens rejeitadas (após esgotar retries)
+        // são automaticamente reencaminhadas para lá, em vez de perdidas.
+        return QueueBuilder.durable(QUEUE_NAME)
+                .withArgument("x-dead-letter-exchange", DLX_EXCHANGE_NAME)
+                .withArgument("x-dead-letter-routing-key", DLQ_ROUTING_KEY)
+                .build();
     }
 
     @Bean
@@ -42,6 +61,28 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(predictionsQueue)
                 .to(predictionsExchange)
                 .with(ROUTING_KEY);
+    }
+
+    // --- Dead-Letter Exchange / Queue ---
+
+    @Bean
+    public TopicExchange predictionsDlxExchange() {
+        return new TopicExchange(DLX_EXCHANGE_NAME, true, false);
+    }
+
+    @Bean
+    public Queue predictionsDlq() {
+        // Queue "de quarentena": guarda mensagens que falharam definitivamente,
+        // para inspeção manual (ex: via RabbitMQ Management UI) sem bloquear
+        // o processamento normal do fluxo principal.
+        return QueueBuilder.durable(DLQ_QUEUE_NAME).build();
+    }
+
+    @Bean
+    public Binding predictionsDlqBinding(Queue predictionsDlq, TopicExchange predictionsDlxExchange) {
+        return BindingBuilder.bind(predictionsDlq)
+                .to(predictionsDlxExchange)
+                .with(DLQ_ROUTING_KEY);
     }
 
     /**

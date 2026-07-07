@@ -1,0 +1,70 @@
+### === Java / Maven (core-backend) === ###
+core-backend/target/
+core-backend/.mvn/wrapper/maven-wrapper.jar
+core-backend/*.iml
+core-backend/.flattened-pom.xml
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+### === Python (ml-engine / dashboard) === ###
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.Python
+build/
+dist/
+
+# Ambientes virtuais
+venv/
+.venv/
+env/
+ENV/
+*/venv/
+*/.venv/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Modelos treinados / artefactos de ML (podem ser pesados e são regeneráveis)
+ml-engine/models/*.pkl
+ml-engine/models/*.joblib
+ml-engine/models/*.h5
+
+# Dados descarregados / processados (não versionar dados de mercado)
+ml-engine/data/raw/*
+ml-engine/data/processed/*
+!ml-engine/data/raw/.gitkeep
+!ml-engine/data/processed/.gitkeep
+
+# Cache do yfinance
+*.cache
+
+### === IDEs / Editores === ###
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+Thumbs.db
+
+### === Variáveis de ambiente / segredos === ###
+.env
+.env.*
+!.env.example
+
+### === Docker === ###
+docker-compose.override.yml
+
+### === Logs === ###
+*.log
+logs/
+
+### === Sistema operativo === ###
+.DS_Store
+desktop.ini
