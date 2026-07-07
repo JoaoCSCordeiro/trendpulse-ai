@@ -78,3 +78,10 @@ logging:
     org.hibernate.SQL: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+trendpulse:
+  accuracy:
+    # Cron do job diário de avaliação de accuracy (AccuracyEvaluationService).
+    # Default: todos os dias às 22:00. Em desenvolvimento, podes querer algo
+    # mais frequente para testar sem esperar 24h, ex: "0 */5 * * * *" (5 em 5 min).
+    cron: ${ACCURACY_JOB_CRON:0 0 22 * * *}

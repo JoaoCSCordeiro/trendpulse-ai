@@ -96,6 +96,13 @@ flowchart LR
 - [x] Observabilidade e resiliência (Actuator, Dead-Letter Queue, retry com backoff, healthchecks)
 - [ ] CI/CD (GitHub Actions)
 
+**Fase 5 — Accuracy, API e UX**
+- [x] Job diário de avaliação de accuracy (`AccuracyEvaluationService`), comparando `predictedPrice` com o preço real observado
+- [x] API versionada (`/api/v1/...`) com paginação real (`Page<T>` do Spring Data)
+- [x] Gráfico "previsto vs. real" e métricas de accuracy no dashboard
+- [x] Grid comparativo multi-ativo, gauge de confiança e anotação de previsão no candlestick
+- [x] TTL de cache adaptado ao período pedido, limpeza explícita do WebSocket ao trocar de ativo
+
 ---
 
 ## 🧠 Modelo Preditivo (scikit-learn)
@@ -124,12 +131,31 @@ Cada previsão consumida da fila RabbitMQ é agora gravada de forma permanente, 
 
 - `PredictionEntity` — entidade JPA persistida (`core-backend/.../model/PredictionEntity.java`), com campos `actualPrice`/`actualReturn` já preparados (mas por preencher) para uma futura Fase de cálculo de accuracy histórica do modelo.
 - `TimescaleDbInitializer` — ativa a extensão `timescaledb` e converte `predictions` em hypertable no arranque da aplicação (o Hibernate sabe criar tabelas relacionais, mas não tem noção de extensões específicas do Postgres).
-- `PredictionHistoryController` — expõe `GET /api/predictions/{symbol}/history?limit=50` e `GET /api/predictions/{symbol}/count`, para consulta do histórico persistido.
+- `PredictionHistoryController` — expõe (todos sob `/api/v1/predictions`, ver "API e Accuracy" abaixo):
+  - `GET /{symbol}/history?page=0&size=50` — histórico paginado (Spring Data `Page<T>`)
+  - `GET /{symbol}/count` — contagem total
+  - `GET /{symbol}/accuracy` — estatísticas de accuracy (ver secção seguinte)
 
 Exemplo:
 ```bash
-curl "http://localhost:8080/api/predictions/AAPL/history?limit=10"
+curl "http://localhost:8080/api/v1/predictions/AAPL/history?page=0&size=10"
 ```
+
+## 🎯 Accuracy do Modelo e API Versionada
+
+**Job diário de avaliação (`AccuracyEvaluationService`):** todos os dias às 22:00 (configurável via `trendpulse.accuracy.cron` / env `ACCURACY_JOB_CRON`), o Core Backend procura previsões com mais de 1 dia e sem `actualPrice` preenchido, consulta o preço real mais recente de cada símbolo (via um cliente HTTP dedicado ao endpoint público do Yahoo Finance — independente do `ml-engine`/Python) e grava `actualPrice`/`actualReturn` na previsão. Isto fecha o loop entre "o que o modelo previu" e "o que realmente aconteceu".
+
+```bash
+# Ver quantas previsões já foram avaliadas e qual a % de acerto de direção
+curl "http://localhost:8080/api/v1/predictions/AAPL/accuracy"
+# {"symbol":"AAPL","totalEvaluated":12,"correctDirection":8,"accuracyRate":0.667,"averageConfidence":0.61}
+```
+
+**API versionada e paginada:** todos os endpoints migraram de `/api/predictions/...` para `/api/v1/predictions/...`, e `/history` usa paginação real do Spring Data (`page`/`size`, resposta com `totalElements`/`totalPages`) em vez de um `limit` fixo — permite navegar por todo o histórico, não só ver os últimos N registos.
+
+No dashboard, a secção **"🎯 Accuracy histórica"** consome estes dois endpoints diretamente e mostra:
+- Métricas agregadas (previsões avaliadas, acertos de direção, % de accuracy)
+- Um gráfico de linhas "Previsto vs. Real" ao longo do tempo
 
 ## 🛡️ Resiliência e Observabilidade
 
@@ -154,6 +180,25 @@ pip install -r requirements.txt
 pytest tests/ -v
 ```
 `test_features.py` valida a engenharia de features com dados sintéticos (sem depender de rede/yfinance); `test_predict.py` valida a camada de inferência, incluindo o fallback gracioso quando o modelo não existe e a classificação correta de tendência (UP/DOWN/NEUTRAL).
+
+## 🎨 Dashboard — UX, Performance e Storytelling Visual
+
+**Redesign visual completo** — o dashboard deixou de usar o tema default do Streamlit e passou a ter identidade própria de terminal de trading:
+- **Paleta:** navy quase-preto (`#0A0E1A`) em vez de cinza neutro, com dois acentos que carregam significado de domínio — teal `#2DD4BF` (alta) e coral `#FB7185` (baixa) — em vez de cores decorativas arbitrárias.
+- **Tipografia:** *Space Grotesk* para títulos/UI (geométrica, técnica), *Inter* para texto corrido, *JetBrains Mono* para todos os números — preços alinhados tabularmente, como um terminal financeiro real.
+- **Elemento assinatura — fita de cotações:** uma tira de preços a deslizar continuamente no topo (AAPL, BTC-USD, TSLA, MSFT), construída em CSS puro (`@keyframes`, sem JavaScript), que pausa ao passar o rato por cima.
+- **Navegação em separadores:** as secções antigas empilhadas (análise, live, accuracy, publicação) passaram a viver em `st.tabs`, reduzindo a sensação de scroll infinito.
+- **Cartões customizados:** métricas deixaram de usar `st.metric` (visual genérico do Streamlit) e passaram a cartões HTML/CSS próprios, com hover subtil e números monoespaçados.
+- **Pill "AO VIVO"** com ponto pulsante (CSS `@keyframes`) no cabeçalho, sinalizando visualmente que os dados são dinâmicos.
+
+**UX**
+- **Grid comparativo multi-ativo:** ativa "📊 Comparar vários ativos" na sidebar para ver AAPL/BTC-USD/TSLA/MSFT lado a lado (preço, tendência, confiança), em vez de alternar um ticker de cada vez.
+- **Gauge de confiança:** semicírculo colorido (vermelho → laranja → verde) ao lado das métricas principais, calibrado ao intervalo real de confiança que o modelo produz (50%-95%), não a uma escala genérica.
+- **Anotação de previsão no candlestick:** o preço previsto pelo modelo aparece agora diretamente no gráfico de velas, ligado ao último candle por uma linha tracejada e uma anotação com seta — em vez de viver só num cartão de métricas separado do contexto visual.
+
+**Performance**
+- **TTL de cache adaptado ao período:** períodos curtos (3mo/6mo) usam TTL de 5 min; períodos longos (1y/2y) usam TTL de 1h, já que o histórico "antigo" praticamente não muda de um minuto para o outro.
+- **Limpeza explícita do WebSocket:** ao trocar de ativo, a ligação STOMP anterior é fechada explicitamente antes de abrir a nova (registo partilhado em `window.top.__tpActiveSockets`), evitando ligações penduradas mesmo em cenários onde o browser não recicla o iframe automaticamente.
 
 ## 🚀 Como Executar Localmente
 
