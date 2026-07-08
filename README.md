@@ -291,7 +291,11 @@ O dashboard tem agora uma secção **"📡 Previsão ao vivo (WebSocket)"** com 
 
 Para testar: com o RabbitMQ, Core Backend e Dashboard todos a correr, clica em "Publicar previsão na fila" (ou corre `test_rabbitmq_publish.py`) e observa o painel "Live feed" atualizar-se instantaneamente, sem tocares em nada mais.
 
-> Nota: se o Core Backend estiver a correr num host/porta diferente, ajusta o campo "🔌 Core Backend (WebSocket)" na sidebar.
+> Nota: a sidebar tem **duas URLs separadas** para o Core Backend, porque correm em dois sítios diferentes:
+> - **"URL pública (WebSocket, no browser)"** — usada pelo cliente STOMP/SockJS, que corre no teu browser. Quase sempre `http://localhost:8080`, mesmo com Docker (o browser está sempre fora do container).
+> - **"URL interna (REST, server-side)"** — usada pelas chamadas de histórico/accuracy, feitas pelo próprio processo Python do dashboard. Com `docker compose`, usa `http://core-backend:8080` (nome do serviço na rede Docker — já vem pré-configurado via `BACKEND_INTERNAL_URL`); a correr fora do Docker, usa `http://localhost:8080`, igual ao campo de cima.
+>
+> Se vires o aviso "Não foi possível ligar ao Core Backend para obter o histórico de accuracy", é quase sempre a **URL interna** que está errada para o teu cenário (localhost vs. nome do serviço Docker).
 
 ---
 

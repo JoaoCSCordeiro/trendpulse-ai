@@ -314,18 +314,33 @@ def render_metric_cards(cards: list[dict]) -> None:
     Usar HTML/CSS próprio em vez de `st.metric` dá controlo total sobre
     tipografia (monoespaçada para os números, como um terminal financeiro)
     e permite o hover/elevação subtil que assinala interatividade.
+
+    Nota importante: `st.markdown` continua a passar o conteúdo pelo parser
+    de Markdown mesmo com `unsafe_allow_html=True` — esse parâmetro só
+    permite tags HTML "soltas", não desliga as restantes regras do
+    Markdown. Uma linha indentada com 4+ espaços é interpretada como bloco
+    de código e mostrada como texto literal em vez de ser renderizada. Por
+    isso construímos aqui HTML de uma única linha, sem indentação nem
+    quebras de linha internas, em vez do f-string multilinha "bonito" mas
+    perigoso que tínhamos antes.
     """
-    cards_html = "".join(
-        f"""
-        <div class="tp-card">
-            <div class="tp-card-label">{card['label']}</div>
-            <div class="tp-card-value">{card['value']}</div>
-            {f'<div class="tp-card-delta" style="color:{ACCENT_UP if card.get("delta_positive") else ACCENT_DOWN};">{card["delta"]}</div>' if card.get('delta') else ''}
-        </div>
-        """
-        for card in cards
-    )
-    st.markdown(f'<div class="tp-card-grid">{cards_html}</div>', unsafe_allow_html=True)
+    card_parts = []
+    for card in cards:
+        delta_html = ""
+        if card.get("delta"):
+            delta_color = ACCENT_UP if card.get("delta_positive") else ACCENT_DOWN
+            delta_html = (
+                f'<div class="tp-card-delta" style="color:{delta_color};">{card["delta"]}</div>'
+            )
+        card_parts.append(
+            f'<div class="tp-card">'
+            f'<div class="tp-card-label">{card["label"]}</div>'
+            f'<div class="tp-card-value">{card["value"]}</div>'
+            f'{delta_html}'
+            f'</div>'
+        )
+
+    st.markdown(f'<div class="tp-card-grid">{"".join(card_parts)}</div>', unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1128,18 +1143,12 @@ def render_multi_asset_grid(tickers: list[str], period: str) -> None:
         delta = payload.predicted_price - payload.current_price
 
         cards_html.append(
-            f"""
-            <div class="tp-card">
-                <div class="tp-card-label">{ticker}</div>
-                <div class="tp-card-value">${payload.current_price:,.2f}</div>
-                <div class="tp-card-delta" style="color:{color};">
-                    {icon} {payload.trend} · {delta:+.2f}
-                </div>
-                <div style="margin-top:8px;font-size:0.72rem;color:{TEXT_MUTED};">
-                    confiança {payload.confidence * 100:.0f}% · {badge}
-                </div>
-            </div>
-            """
+            f'<div class="tp-card">'
+            f'<div class="tp-card-label">{ticker}</div>'
+            f'<div class="tp-card-value">${payload.current_price:,.2f}</div>'
+            f'<div class="tp-card-delta" style="color:{color};">{icon} {payload.trend} · {delta:+.2f}</div>'
+            f'<div style="margin-top:8px;font-size:0.72rem;color:{TEXT_MUTED};">confiança {payload.confidence * 100:.0f}% · {badge}</div>'
+            f'</div>'
         )
 
     st.markdown(f'<div class="tp-card-grid">{"".join(cards_html)}</div>', unsafe_allow_html=True)
@@ -1188,26 +1197,41 @@ def main() -> None:
             "Password", value=os.environ.get("RABBITMQ_PASS", "guest"), type="password"
         )
 
-    with st.sidebar.expander("🔌 Core Backend (WebSocket)", expanded=True):
-        backend_url = st.text_input(
-            "URL base",
+    with st.sidebar.expander("🔌 Core Backend", expanded=True):
+        st.caption(
+            "Duas URLs diferentes porque correm em dois sítios diferentes: "
+            "uma no teu **browser**, outra dentro do **processo do dashboard**."
+        )
+        backend_public_url = st.text_input(
+            "URL pública (WebSocket, no browser)",
             value=os.environ.get("BACKEND_PUBLIC_URL", "http://localhost:8080"),
-            help="Endereço onde o core-backend Spring Boot está a correr, "
-            "**tal como acessível a partir do teu browser** (o cliente WebSocket "
-            "corre no browser, não dentro do container do dashboard).",
+            help="Usada pelo cliente STOMP/SockJS embutido, que corre no teu "
+            "browser. Se acedes ao dashboard em `localhost:8501`, isto é "
+            "quase sempre `http://localhost:8080` — mesmo que o dashboard "
+            "esteja em Docker (o browser está sempre fora do container).",
+        )
+        backend_internal_url = st.text_input(
+            "URL interna (REST, server-side)",
+            value=os.environ.get("BACKEND_INTERNAL_URL", "http://localhost:8080"),
+            help="Usada pelas chamadas REST de histórico/accuracy, feitas "
+            "diretamente pelo processo Python do dashboard (não pelo "
+            "browser). Se correres via `docker compose`, o dashboard e o "
+            "core-backend estão na mesma rede Docker — usa "
+            "`http://core-backend:8080` aqui. Se correres o dashboard "
+            "diretamente na tua máquina (fora do Docker), usa "
+            "`http://localhost:8080`, igual ao campo de cima.",
         )
 
     # --- Cabeçalho: título + pill "ao vivo" ---
+    header_title = ticker if not comparison_mode else "Visão Geral do Mercado"
     st.markdown(
-        f"""
-        <div class="tp-header">
-            <div class="tp-display" style="font-size:2rem;font-weight:700;">
-                {ticker if not comparison_mode else "Visão Geral do Mercado"}
-                <span style="color:{TEXT_MUTED};font-weight:500;font-size:1.1rem;"> — Análise Técnica</span>
-            </div>
-            <div class="tp-live-pill"><span class="tp-pulse-dot"></span> AO VIVO</div>
-        </div>
-        """,
+        f'<div class="tp-header">'
+        f'<div class="tp-display" style="font-size:2rem;font-weight:700;">'
+        f'{header_title}'
+        f'<span style="color:{TEXT_MUTED};font-weight:500;font-size:1.1rem;"> — Análise Técnica</span>'
+        f'</div>'
+        f'<div class="tp-live-pill"><span class="tp-pulse-dot"></span> AO VIVO</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -1283,7 +1307,7 @@ def main() -> None:
             "observa esta secção reagir em tempo real."
         )
         components.html(
-            build_realtime_widget_html(backend_url, ticker),
+            build_realtime_widget_html(backend_public_url, ticker),
             height=340,
             scrolling=False,
         )
@@ -1297,14 +1321,16 @@ def main() -> None:
             "para comparar."
         )
 
-        accuracy_stats = fetch_accuracy_stats(backend_url, ticker)
-        history_df = fetch_prediction_history(backend_url, ticker, size=200)
+        accuracy_stats = fetch_accuracy_stats(backend_internal_url, ticker)
+        history_df = fetch_prediction_history(backend_internal_url, ticker, size=200)
 
         if accuracy_stats is None or history_df is None:
             st.info(
-                "⚠️ Não foi possível ligar ao Core Backend para obter o histórico "
-                "de accuracy. Confirma que o `core-backend` está a correr e que "
-                "a URL na sidebar está correta."
+                f"⚠️ Não foi possível ligar ao Core Backend em `{backend_internal_url}` "
+                "para obter o histórico de accuracy. Confirma que o `core-backend` está "
+                "a correr e ajusta o campo **'URL interna (REST, server-side)'** na "
+                "sidebar: usa `http://core-backend:8080` se correres via `docker compose`, "
+                "ou `http://localhost:8080` se correres o dashboard diretamente na tua máquina."
             )
         elif accuracy_stats["totalEvaluated"] == 0:
             st.info(

@@ -112,7 +112,8 @@ services:
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: guest
       RABBITMQ_PASS: guest
-      BACKEND_PUBLIC_URL: http://localhost:8080  # visto do browser do utilizador (fora do Docker)
+      BACKEND_PUBLIC_URL: http://localhost:8080    # visto do BROWSER do utilizador (fora do Docker) — usado pelo cliente WebSocket
+      BACKEND_INTERNAL_URL: http://core-backend:8080  # visto de DENTRO da rede Docker — usado pelas chamadas REST (accuracy/history) do próprio processo do dashboard
     volumes:
       - ml-models:/app/ml-engine/models  # partilha o modelo treinado pelo ml-trainer
     depends_on:
