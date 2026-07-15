@@ -1,0 +1,191 @@
+{
+  "title": "TrendPulse AI — Latência e Throughput",
+  "uid": "trendpulse-latency-throughput",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "tags": ["trendpulse", "micrometer", "prometheus"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Throughput (previsões/seg)",
+      "description": "Taxa de previsões processadas com sucesso, derivada do contador trendpulse_predictions_processed_total.",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(trendpulse_predictions_processed_total[1m]))",
+          "legendFormat": "previsões/seg"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Taxa de Erro",
+      "description": "Taxa de previsões que falharam a validação/processamento (trendpulse_predictions_failed_total).",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(trendpulse_predictions_failed_total[5m]))",
+          "legendFormat": "falhas/seg"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.01 },
+              { "color": "red", "value": 0.1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Latência p95 (end-to-end)",
+      "description": "Percentil 95 da latência total: RabbitMQ -> persistência -> WebSocket (trendpulse_prediction_total_duration_seconds).",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(trendpulse_prediction_total_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.5 },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Latência p99 (end-to-end)",
+      "description": "Percentil 99 da latência total end-to-end.",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(trendpulse_prediction_total_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 3 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Latência End-to-End — p50 / p95 / p99",
+      "description": "Evolução temporal dos percentis de latência da pipeline completa (RabbitMQ -> TimescaleDB -> WebSocket).",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(trendpulse_prediction_total_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(trendpulse_prediction_total_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(trendpulse_prediction_total_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Latência por Etapa — Persistência vs. Broadcast",
+      "description": "Decomposição da latência total nas duas etapas instrumentadas isoladamente: escrita em TimescaleDB e difusão via WebSocket. Ajuda a identificar onde está o gargalo caso a latência total suba.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(trendpulse_prediction_persist_duration_seconds_sum[5m])) / sum(rate(trendpulse_prediction_persist_duration_seconds_count[5m]))",
+          "legendFormat": "Persistência (TimescaleDB) — média"
+        },
+        {
+          "expr": "sum(rate(trendpulse_prediction_broadcast_duration_seconds_sum[5m])) / sum(rate(trendpulse_prediction_broadcast_duration_seconds_count[5m]))",
+          "legendFormat": "Broadcast (WebSocket) — média"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Throughput por Símbolo",
+      "description": "Previsões processadas por segundo, decompostas por ativo — útil para ver se algum símbolo está a gerar volume desproporcional.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(trendpulse_predictions_processed_total[1m])) by (symbol)",
+          "legendFormat": "{{symbol}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Latência dos Endpoints REST (p95)",
+      "description": "Latência p95 dos endpoints REST (/api/v1/predictions/...), instrumentada automaticamente pelo Spring Boot Actuator via Micrometer (http.server.requests).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le, uri))",
+          "legendFormat": "{{uri}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    }
+  ]
+}

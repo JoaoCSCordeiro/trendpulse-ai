@@ -34,6 +34,13 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- Micrometer + Prometheus: métricas de latência e throughput,
+             expostas em /actuator/prometheus para scraping pelo Prometheus. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- Persistência: JPA + driver PostgreSQL (usado com a extensão TimescaleDB) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

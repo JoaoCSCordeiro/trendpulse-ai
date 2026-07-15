@@ -8,12 +8,17 @@ version: "3.9"
 #   core-backend - Spring Boot: consome RabbitMQ, persiste em TimescaleDB, expõe WebSocket /ws-market
 #   ml-trainer   - treina o modelo scikit-learn uma vez e termina (job, não daemon)
 #   dashboard    - Streamlit: UI, publica previsões no RabbitMQ, lê o modelo treinado
+#   prometheus   - faz scrape das métricas Micrometer do core-backend (/actuator/prometheus)
+#   grafana      - dashboard de latência/throughput, provisionado automaticamente
 #
 # Uso:
-#   docker compose up -d --build                # sobe rabbitmq + timescaledb + core-backend + dashboard
+#   docker compose up -d --build                # sobe tudo, incluindo Prometheus + Grafana
 #   docker compose --profile training run --rm ml-trainer   # treina/retreina o modelo
 #   docker compose logs -f core-backend
 #   docker compose down                          # -v para também apagar volumes (incl. histórico de previsões)
+#
+# Grafana: http://localhost:3000 (admin/admin, ou acesso anónimo como Viewer)
+# Prometheus: http://localhost:9090
 
 services:
 
@@ -124,6 +129,44 @@ services:
     networks:
       - trendpulse-net
 
+  # --- Observabilidade: latência e throughput (Micrometer -> Prometheus -> Grafana) ---
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: trendpulse-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      core-backend:
+        condition: service_healthy
+    networks:
+      - trendpulse-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: trendpulse-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # Acesso anónimo como Viewer, só para facilitar abrir o dashboard
+      # rapidamente num ambiente de demo/portfolio — desativa isto (ou troca
+      # a password de admin) antes de expor a stack fora da tua máquina.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - trendpulse-net
+
 networks:
   trendpulse-net:
     driver: bridge
@@ -132,3 +175,5 @@ volumes:
   rabbitmq-data:
   timescale-data:
   ml-models:
+  prometheus-data:
+  grafana-data:

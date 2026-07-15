@@ -3,6 +3,8 @@ package com.trendpulse.core.listener;
 import com.trendpulse.core.model.PredictionEntity;
 import com.trendpulse.core.model.PredictionMessage;
 import com.trendpulse.core.repository.PredictionRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,11 +42,17 @@ class MarketDataListenerTest {
     @Mock
     private PredictionRepository predictionRepository;
 
+    // Registo real (não mock) — Micrometer precisa de um MeterRegistry
+    // funcional para criar/atualizar Counters e Timers; um mock exigiria
+    // stubbing extensivo sem trazer nenhum benefício de teste.
+    private MeterRegistry meterRegistry;
+
     private MarketDataListener listener;
 
     @BeforeEach
     void setUp() {
-        listener = new MarketDataListener(messagingTemplate, predictionRepository);
+        meterRegistry = new SimpleMeterRegistry();
+        listener = new MarketDataListener(messagingTemplate, predictionRepository, meterRegistry);
     }
 
     private PredictionMessage validPrediction() {
@@ -69,6 +77,51 @@ class MarketDataListenerTest {
 
         // Verifica que foi difundido no tópico WebSocket correto para o símbolo
         verify(messagingTemplate).convertAndSend(eq("/topic/predictions/AAPL"), eq(prediction));
+    }
+
+    @Test
+    void handlePrediction_recordsProcessedCounterAndLatencyTimers() {
+        PredictionMessage prediction = validPrediction();
+
+        listener.handlePrediction(prediction);
+
+        double processedCount = meterRegistry.counter(
+                "trendpulse.predictions.processed", "symbol", "AAPL", "trend", "UP"
+        ).count();
+        assertThat(processedCount).isEqualTo(1.0);
+
+        assertThat(meterRegistry.find("trendpulse.prediction.total.duration").timer())
+                .as("timer de latência end-to-end deve existir após processar uma previsão")
+                .isNotNull();
+        assertThat(meterRegistry.find("trendpulse.prediction.total.duration").timer().count())
+                .isEqualTo(1);
+
+        assertThat(meterRegistry.find("trendpulse.prediction.persist.duration").tag("symbol", "AAPL").timer())
+                .as("timer de latência de persistência deve existir, tagged por símbolo")
+                .isNotNull();
+
+        assertThat(meterRegistry.find("trendpulse.prediction.broadcast.duration").tag("symbol", "AAPL").timer())
+                .as("timer de latência de broadcast deve existir, tagged por símbolo")
+                .isNotNull();
+    }
+
+    @Test
+    void handlePrediction_recordsFailedCounterWhenValidationFails() {
+        PredictionMessage invalid = new PredictionMessage(
+                "TSLA", 100.0, 101.0, "UP", 1.5, Instant.now()
+        );
+
+        assertThatThrownBy(() -> listener.handlePrediction(invalid))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        double failedCount = meterRegistry.counter("trendpulse.predictions.failed", "symbol", "TSLA").count();
+        assertThat(failedCount).isEqualTo(1.0);
+
+        // Uma previsão inválida nunca deve incrementar o contador de sucesso.
+        double processedCount = meterRegistry.counter(
+                "trendpulse.predictions.processed", "symbol", "TSLA", "trend", "UP"
+        ).count();
+        assertThat(processedCount).isZero();
     }
 
     @Test

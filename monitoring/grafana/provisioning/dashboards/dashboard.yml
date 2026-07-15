@@ -1,0 +1,14 @@
+# Diz ao Grafana para carregar automaticamente qualquer dashboard JSON
+# colocado em /var/lib/grafana/dashboards — é assim que o dashboard de
+# latência/throughput do TrendPulse aparece já pronto, sem importação manual.
+apiVersion: 1
+
+providers:
+  - name: "TrendPulse AI"
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

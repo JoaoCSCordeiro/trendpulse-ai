@@ -64,7 +64,7 @@ flowchart LR
 | Dados de Mercado | yfinance | Ingestão de dados históricos e em tempo real |
 | Indicadores Técnicos | pandas-ta | Cálculo de SMA, RSI e outros indicadores |
 | Frontend | Streamlit, Plotly | Dashboard interativo em dark mode |
-| Observabilidade | Spring Boot Actuator | Health checks (RabbitMQ + DB), métricas |
+| Observabilidade | Spring Boot Actuator, Micrometer, Prometheus, Grafana | Health checks, métricas de latência/throughput, dashboards |
 | Resiliência | RabbitMQ DLQ, retry com backoff (Java + Python) | Tolerância a falhas transitórias |
 | Testes | JUnit 5, Mockito, pytest | Testes unitários backend e ml-engine |
 | Build/Dependências | Maven, pip | Gestão de dependências dos módulos |
@@ -102,6 +102,12 @@ flowchart LR
 - [x] Gráfico "previsto vs. real" e métricas de accuracy no dashboard
 - [x] Grid comparativo multi-ativo, gauge de confiança e anotação de previsão no candlestick
 - [x] TTL de cache adaptado ao período pedido, limpeza explícita do WebSocket ao trocar de ativo
+
+**Fase 6 — Métricas de Latência e Throughput**
+- [x] Instrumentação Micrometer do pipeline (latência end-to-end + por etapa: persistência/broadcast)
+- [x] Contadores de throughput e taxa de erro, tagged por símbolo/tendência
+- [x] Prometheus (scraping automático) + Grafana (dashboard pré-provisionado, 8 painéis)
+- [x] Testes unitários das métricas com `SimpleMeterRegistry` real
 
 ---
 
@@ -163,6 +169,38 @@ No dashboard, a secção **"🎯 Accuracy histórica"** consome estes dois endpo
 - **Validação defensiva no listener:** `MarketDataListener` rejeita mensagens com `symbol` em falta ou `confidence` fora de `[0,1]`, lançando uma exceção explícita em vez de propagar dados inválidos para os clientes WebSocket ou para a base de dados.
 - **Retry com backoff no dashboard:** `fetch_market_data` (Python) tenta até 3 vezes com backoff exponencial (1s, 2s, 4s) antes de desistir de obter dados do Yahoo Finance, e mostra um botão "Tentar novamente" em vez de um stack trace cru.
 - **Spring Boot Actuator:** `GET /actuator/health` reporta o estado agregado da aplicação, incluindo a ligação ao RabbitMQ e à base de dados — usado pelos `healthcheck` do Docker Compose para saberem quando o Core Backend está mesmo pronto (não só "up").
+
+## 📊 Métricas de Latência e Throughput (Micrometer + Prometheus + Grafana)
+
+O pipeline de processamento de previsões (RabbitMQ → TimescaleDB → WebSocket) está instrumentado ponta-a-ponta com [Micrometer](https://micrometer.io/), expostas em `/actuator/prometheus` e visualizadas num dashboard Grafana já provisionado — sem necessidade de configuração manual.
+
+**Métricas capturadas** (`MarketDataListener`):
+
+| Métrica | Tipo | O que mede |
+|---|---|---|
+| `trendpulse_prediction_total_duration_seconds` | Timer (histograma, p50/p95/p99) | Latência **end-to-end**: da receção da mensagem RabbitMQ até à difusão WebSocket concluída |
+| `trendpulse_prediction_persist_duration_seconds` | Timer, tagged por `symbol` | Latência isolada da escrita em TimescaleDB |
+| `trendpulse_prediction_broadcast_duration_seconds` | Timer, tagged por `symbol` | Latência isolada da difusão via WebSocket |
+| `trendpulse_predictions_processed_total` | Counter, tagged por `symbol`/`trend` | Previsões processadas com sucesso — combinado com `rate()` no Prometheus dá o **throughput** (previsões/segundo) |
+| `trendpulse_predictions_failed_total` | Counter, tagged por `symbol` | Falhas de validação/processamento — permite alertar se a taxa de erro subir |
+| `http_server_requests_seconds` | Timer (automático, via Actuator) | Latência de todos os endpoints REST (`/api/v1/predictions/...`), sem código adicional |
+
+Decompor a latência total em "persistência" vs. "broadcast" (em vez de só medir o tempo total) permite identificar exatamente onde está o gargalo se a latência subir — por exemplo, distinguir uma TimescaleDB lenta de um problema no broker WebSocket.
+
+**Dashboard Grafana pré-configurado:** o ficheiro `monitoring/grafana/dashboards/trendpulse-latency-throughput.json` é carregado automaticamente no arranque (via provisioning), com 8 painéis: throughput agregado, taxa de erro, latência p95/p99 end-to-end, séries temporais de p50/p95/p99, decomposição persistência vs. broadcast, throughput por símbolo, e latência p95 dos endpoints REST.
+
+```bash
+docker compose up -d --build
+# Prometheus: http://localhost:9090
+# Grafana:    http://localhost:3000 (admin/admin, ou acesso anónimo como Viewer)
+```
+
+Depois de publicares algumas previsões (aba "📤 Publicar" do dashboard, ou `manual_rabbitmq_publish.py`), os gráficos populam-se em tempo real — útil para tirar um screenshot com dados reais para um portfolio/CV.
+
+![Latência p95/p99 end-to-end no Grafana](docs/screenshots/grafana-latency.png)
+*Latência end-to-end (RabbitMQ → TimescaleDB → WebSocket) capturada em ambiente local: p95 = 127ms, p99 = 133ms.*
+
+**Testado:** `MarketDataListenerTest` inclui asserções diretas sobre o `MeterRegistry` (não um mock — um `SimpleMeterRegistry` real), confirmando que os counters e timers corretos são incrementados/registados após cada previsão processada ou falhada.
 
 ## ✅ Testes
 
@@ -270,7 +308,7 @@ Com o RabbitMQ e o Core Backend a correr, publica uma mensagem de teste diretame
 
 ```bash
 cd ml-engine/tests
-python test_rabbitmq_publish.py --symbol AAPL
+python manual_rabbitmq_publish.py --symbol AAPL
 ```
 
 Deverás ver nos logs do `core-backend` uma linha como:
@@ -289,7 +327,7 @@ O dashboard tem agora uma secção **"📡 Previsão ao vivo (WebSocket)"** com 
 2. Subscreve `/topic/predictions/<symbol>` para o ativo selecionado na sidebar
 3. Atualiza os valores (Preço Atual, Previsto, Tendência, Confiança) e o log de mensagens **sem qualquer rerun do Streamlit** — a atualização é feita diretamente no DOM pelo JavaScript, assim que o `MarketDataListener` (Java) publica no tópico
 
-Para testar: com o RabbitMQ, Core Backend e Dashboard todos a correr, clica em "Publicar previsão na fila" (ou corre `test_rabbitmq_publish.py`) e observa o painel "Live feed" atualizar-se instantaneamente, sem tocares em nada mais.
+Para testar: com o RabbitMQ, Core Backend e Dashboard todos a correr, clica em "Publicar previsão na fila" (ou corre `manual_rabbitmq_publish.py`) e observa o painel "Live feed" atualizar-se instantaneamente, sem tocares em nada mais.
 
 > Nota: a sidebar tem **duas URLs separadas** para o Core Backend, porque correm em dois sítios diferentes:
 > - **"URL pública (WebSocket, no browser)"** — usada pelo cliente STOMP/SockJS, que corre no teu browser. Quase sempre `http://localhost:8080`, mesmo com Docker (o browser está sempre fora do container).
@@ -298,10 +336,4 @@ Para testar: com o RabbitMQ, Core Backend e Dashboard todos a correr, clica em "
 > Se vires o aviso "Não foi possível ligar ao Core Backend para obter o histórico de accuracy", é quase sempre a **URL interna** que está errada para o teu cenário (localhost vs. nome do serviço Docker).
 
 ---
-
-## ✍️ Autor
-
-**João Cordeiro**
-
-[LinkedIn](#) · [GitHub](#) · [Portfolio](#)
 

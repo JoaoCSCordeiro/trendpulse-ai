@@ -59,7 +59,9 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        # 'prometheus' expõe as métricas de latência/throughput (Micrometer)
+        # no formato que o Prometheus sabe fazer scrape (/actuator/prometheus).
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: when-authorized
@@ -70,6 +72,11 @@ management:
       enabled: true
     db:
       enabled: true
+  metrics:
+    tags:
+      # Tag comum a todas as métricas, útil quando o Prometheus faz scrape
+      # de múltiplos serviços — identifica de onde vem cada série temporal.
+      application: ${spring.application.name}
 
 logging:
   level:

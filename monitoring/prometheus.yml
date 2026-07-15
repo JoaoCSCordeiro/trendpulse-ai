@@ -1,0 +1,18 @@
+# Configuração de scraping do Prometheus para o TrendPulse AI.
+#
+# O Core Backend (Spring Boot) expõe as suas métricas Micrometer em
+# /actuator/prometheus — este ficheiro diz ao Prometheus para as ir buscar
+# ali de 15 em 15 segundos.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "trendpulse-core-backend"
+    metrics_path: "/actuator/prometheus"
+    scrape_interval: 10s
+    static_configs:
+      - targets: ["core-backend:8080"]
+        labels:
+          service: "core-backend"
