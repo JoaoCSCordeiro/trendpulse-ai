@@ -1,4 +1,4 @@
-# 📈 TrendPulse AI
+#  TrendPulse AI
 
 ### Plataforma reativa de análise preditiva de mercados financeiros, orientada a eventos e alimentada por Machine Learning
 
@@ -6,7 +6,7 @@ TrendPulse AI combina um pipeline de Machine Learning em Python com um backend o
 
 ---
 
-## 🏗️ Arquitetura do Sistema
+##  Arquitetura do Sistema
 
 O sistema está dividido em três componentes independentes, comunicando de forma assíncrona e desacoplada:
 
@@ -52,7 +52,7 @@ flowchart LR
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+##  Tecnologias Utilizadas
 
 | Camada | Tecnologia | Finalidade |
 |---|---|---|
@@ -72,7 +72,7 @@ flowchart LR
 ---
 
 
-## 🗺️ Roadmap de Desenvolvimento
+##  Roadmap de Desenvolvimento
 
 **Fase 1 — Fundações (atual)**
 - [x] Estrutura de monorepo
@@ -111,7 +111,7 @@ flowchart LR
 
 ---
 
-## 🧠 Modelo Preditivo (scikit-learn)
+##  Modelo Preditivo (scikit-learn)
 
 O `ml-engine` treina um `RandomForestRegressor` para prever o **retorno percentual do dia seguinte**, usando features relativas (retornos, rácios face a médias móveis, RSI, volatilidade, volume relativo) — desenhadas para generalizar entre ativos com escalas de preço muito diferentes (ex: AAPL vs. BTC-USD).
 
@@ -147,7 +147,7 @@ Exemplo:
 curl "http://localhost:8080/api/v1/predictions/AAPL/history?page=0&size=10"
 ```
 
-## 🎯 Accuracy do Modelo e API Versionada
+##  Accuracy do Modelo e API Versionada
 
 **Job diário de avaliação (`AccuracyEvaluationService`):** todos os dias às 22:00 (configurável via `trendpulse.accuracy.cron` / env `ACCURACY_JOB_CRON`), o Core Backend procura previsões com mais de 1 dia e sem `actualPrice` preenchido, consulta o preço real mais recente de cada símbolo (via um cliente HTTP dedicado ao endpoint público do Yahoo Finance — independente do `ml-engine`/Python) e grava `actualPrice`/`actualReturn` na previsão. Isto fecha o loop entre "o que o modelo previu" e "o que realmente aconteceu".
 
@@ -170,7 +170,7 @@ No dashboard, a secção **"🎯 Accuracy histórica"** consome estes dois endpo
 - **Retry com backoff no dashboard:** `fetch_market_data` (Python) tenta até 3 vezes com backoff exponencial (1s, 2s, 4s) antes de desistir de obter dados do Yahoo Finance, e mostra um botão "Tentar novamente" em vez de um stack trace cru.
 - **Spring Boot Actuator:** `GET /actuator/health` reporta o estado agregado da aplicação, incluindo a ligação ao RabbitMQ e à base de dados — usado pelos `healthcheck` do Docker Compose para saberem quando o Core Backend está mesmo pronto (não só "up").
 
-## 📊 Métricas de Latência e Throughput (Micrometer + Prometheus + Grafana)
+##  Métricas de Latência e Throughput (Micrometer + Prometheus + Grafana)
 
 O pipeline de processamento de previsões (RabbitMQ → TimescaleDB → WebSocket) está instrumentado ponta-a-ponta com [Micrometer](https://micrometer.io/), expostas em `/actuator/prometheus` e visualizadas num dashboard Grafana já provisionado — sem necessidade de configuração manual.
 
@@ -202,7 +202,7 @@ Depois de publicares algumas previsões (aba "📤 Publicar" do dashboard, ou `m
 
 **Testado:** `MarketDataListenerTest` inclui asserções diretas sobre o `MeterRegistry` (não um mock — um `SimpleMeterRegistry` real), confirmando que os counters e timers corretos são incrementados/registados após cada previsão processada ou falhada.
 
-## ✅ Testes
+##  Testes
 
 **Backend (Java) — JUnit 5 + Mockito:**
 ```bash
@@ -219,7 +219,7 @@ pytest tests/ -v
 ```
 `test_features.py` valida a engenharia de features com dados sintéticos (sem depender de rede/yfinance); `test_predict.py` valida a camada de inferência, incluindo o fallback gracioso quando o modelo não existe e a classificação correta de tendência (UP/DOWN/NEUTRAL).
 
-## 🎨 Dashboard — UX, Performance e Storytelling Visual
+##  Dashboard — UX, Performance e Storytelling Visual
 
 **Redesign visual completo** — o dashboard deixou de usar o tema default do Streamlit e passou a ter identidade própria de terminal de trading:
 - **Paleta:** navy quase-preto (`#0A0E1A`) em vez de cinza neutro, com dois acentos que carregam significado de domínio — teal `#2DD4BF` (alta) e coral `#FB7185` (baixa) — em vez de cores decorativas arbitrárias.
@@ -238,7 +238,7 @@ pytest tests/ -v
 - **TTL de cache adaptado ao período:** períodos curtos (3mo/6mo) usam TTL de 5 min; períodos longos (1y/2y) usam TTL de 1h, já que o histórico "antigo" praticamente não muda de um minuto para o outro.
 - **Limpeza explícita do WebSocket:** ao trocar de ativo, a ligação STOMP anterior é fechada explicitamente antes de abrir a nova (registo partilhado em `window.top.__tpActiveSockets`), evitando ligações penduradas mesmo em cenários onde o browser não recicla o iframe automaticamente.
 
-## 🚀 Como Executar Localmente
+##  Como Executar Localmente
 
 ### Opção A — Docker Compose (recomendado)
 
