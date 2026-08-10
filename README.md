@@ -1,22 +1,47 @@
+<<<<<<< Updated upstream
 #  TrendPulse AI
+=======
+# TrendPulse AI
+>>>>>>> Stashed changes
 
-### Plataforma reativa de análise preditiva de mercados financeiros, orientada a eventos e alimentada por Machine Learning
+Plataforma de análise preditiva de mercados financeiros, orientada a eventos.
+TrendPulse AI combina um pipeline de Machine Learning em Python com um
+backend orientado a eventos em Java/Spring Boot para transformar dados de
+mercado em previsões, entregues em tempo real via WebSocket. Projeto de
+demonstração de arquitetura distribuída, mensageria assíncrona e
+observabilidade de sistemas de IA em produção.
 
-TrendPulse AI combina um pipeline de Machine Learning em Python com um backend orientado a eventos em Java/Spring Boot para transformar dados de mercado em previsões acionáveis, entregues em tempo real através de WebSockets. O projeto foi desenhado como demonstração prática de arquitetura distribuída, mensageria assíncrona e orquestração de sistemas de IA em produção.
+## Overview
 
----
+O sistema está dividido em três componentes independentes, comunicando de
+forma assíncrona e desacoplada:
 
+<<<<<<< Updated upstream
 ##  Arquitetura do Sistema
+=======
+- ML Engine e Ingestão de Dados (Python): obtém dados históricos e em tempo
+  real via `yfinance`, calcula indicadores técnicos com `pandas-ta`, e gera
+  previsões com um modelo `scikit-learn`. Publica os resultados numa fila
+  RabbitMQ.
+- Core Backend (Java / Spring Boot): consome as previsões da fila RabbitMQ
+  via `@RabbitListener`, persiste-as em TimescaleDB, e distribui-as a todos
+  os clientes ligados via WebSocket (STOMP sobre SockJS).
+- Dashboard (Python / Streamlit): gráficos de velas interativos (Plotly),
+  médias móveis e métricas de previsão.
+>>>>>>> Stashed changes
 
-O sistema está dividido em três componentes independentes, comunicando de forma assíncrona e desacoplada:
+Esta separação permite escalar cada componente de forma independente — por
+exemplo, múltiplas instâncias do ML Engine podem publicar para a mesma fila,
+enquanto o Core Backend distribui essa informação a múltiplos clientes
+WebSocket sem acoplamento direto entre os serviços.
 
-- **ML Engine & Ingestão de Dados (Python):** responsável por obter dados históricos e em tempo real via `yfinance`, calcular indicadores técnicos com `pandas-ta` (ex: Médias Móveis Simples), e gerar previsões através de modelos `scikit-learn`. Após o processamento, publica os resultados numa fila RabbitMQ.
-- **Core Backend (Java / Spring Boot):** consome as previsões da fila RabbitMQ através de um `@RabbitListener`, persiste-as em TimescaleDB para histórico permanente, e distribui-as instantaneamente a todos os clientes ligados via WebSocket (STOMP sobre SockJS), garantindo baixa latência e comunicação bidirecional.
-- **Dashboard (Python / Streamlit):** interface visual "dark mode" que apresenta gráficos de velas interativos (Plotly), médias móveis e métricas de previsão, pensada para um contexto de trading.
+Estado do desenvolvimento: as fundações (monorepo, WebSocket + RabbitMQ),
+o pipeline preditivo (feature engineering, `RandomForestRegressor`),
+persistência (TimescaleDB), containerização (Docker Compose), avaliação de
+accuracy, API versionada e observabilidade (Micrometer + Prometheus +
+Grafana) estão implementados. O que falta está descrito em Limitations.
 
-Esta separação de responsabilidades permite escalar cada componente de forma independente — por exemplo, múltiplas instâncias do ML Engine podem publicar previsões para a mesma fila, enquanto o Core Backend distribui essa informação a milhares de clientes WebSocket sem acoplamento direto entre os serviços.
-
-### Fluxo Event-Driven
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -50,40 +75,53 @@ flowchart LR
     style FE fill:#161A25,color:#fff
 ```
 
----
+### Modelo preditivo (scikit-learn)
 
+<<<<<<< Updated upstream
 ##  Tecnologias Utilizadas
+=======
+O `ml-engine` treina um `RandomForestRegressor` para prever o retorno
+percentual do dia seguinte, usando features relativas (retornos, rácios
+face a médias móveis, RSI, volatilidade, volume relativo) — desenhadas para
+generalizar entre ativos com escalas de preço muito diferentes (ex: AAPL
+vs. BTC-USD). O artefacto treinado é guardado em
+`ml-engine/models/price_predictor.joblib`.
+>>>>>>> Stashed changes
 
-| Camada | Tecnologia | Finalidade |
-|---|---|---|
-| Core Backend | Java 17, Spring Boot 3 | Orquestração, WebSockets, integração AMQP |
-| Mensageria | RabbitMQ (Spring AMQP) | Comunicação assíncrona entre serviços |
-| Comunicação Real-Time | WebSocket (STOMP/SockJS) | Difusão de previsões em baixa latência |
-| Persistência | PostgreSQL + TimescaleDB, Spring Data JPA | Histórico de previsões particionado por tempo |
-| ML Engine | Python 3.11, scikit-learn | Modelação preditiva de séries temporais |
-| Dados de Mercado | yfinance | Ingestão de dados históricos e em tempo real |
-| Indicadores Técnicos | pandas-ta | Cálculo de SMA, RSI e outros indicadores |
-| Frontend | Streamlit, Plotly | Dashboard interativo em dark mode |
-| Observabilidade | Spring Boot Actuator, Micrometer, Prometheus, Grafana | Health checks, métricas de latência/throughput, dashboards |
-| Resiliência | RabbitMQ DLQ, retry com backoff (Java + Python) | Tolerância a falhas transitórias |
-| Testes | JUnit 5, Mockito, pytest | Testes unitários backend e ml-engine |
-| Build/Dependências | Maven, pip | Gestão de dependências dos módulos |
+O dashboard deteta automaticamente a presença deste ficheiro: se existir,
+usa a previsão do modelo; se não existir, cai num fallback heurístico de
+cruzamento de médias móveis SMA 20/50, indicando visualmente qual das duas
+fontes gerou a previsão apresentada. A confiança apresentada para o modelo
+não é um valor fixo: é derivada da variância entre as árvores da floresta
+(`model.estimators_`) — se todas concordarem na previsão, a confiança sobe;
+se discordarem muito, desce.
 
----
+### Persistência (PostgreSQL / TimescaleDB)
 
+Cada previsão consumida da fila RabbitMQ é gravada de forma permanente,
+antes de ser difundida via WebSocket. TimescaleDB é uma extensão do
+PostgreSQL especializada em séries temporais: `TimescaleDbInitializer`
+converte a tabela `predictions` numa hypertable particionada
+automaticamente pela coluna `generated_at`, mantendo as queries rápidas
+mesmo com a tabela a crescer para milhões de linhas. Sendo 100% compatível
+com o protocolo PostgreSQL, o driver JDBC e o Spring Data JPA usados são os
+mesmos de um Postgres normal — se o TimescaleDB não estiver disponível, a
+aplicação continua a funcionar como uma tabela relacional normal, só perde
+o particionamento.
 
+<<<<<<< Updated upstream
 ##  Roadmap de Desenvolvimento
+=======
+`PredictionHistoryController` expõe, sob `/api/v1/predictions`:
+>>>>>>> Stashed changes
 
-**Fase 1 — Fundações (atual)**
-- [x] Estrutura de monorepo
-- [x] Configuração base do Spring Boot (WebSocket + RabbitMQ)
-- [x] Script inicial de ingestão e visualização de dados
+- `GET /{symbol}/history?page=0&size=50` — histórico paginado (Spring Data `Page<T>`)
+- `GET /{symbol}/count` — contagem total
+- `GET /{symbol}/accuracy` — estatísticas de accuracy (ver abaixo)
 
-**Fase 2 — Inteligência Preditiva**
-- [x] Publicação real das previsões via `pika` para o RabbitMQ
-- [x] Pipeline de feature engineering (retornos, SMA ratios, RSI, volatilidade, volume relativo)
-- [x] Treino e serialização de um modelo scikit-learn (`RandomForestRegressor`) para prever o retorno do dia seguinte
+### Accuracy do modelo
 
+<<<<<<< Updated upstream
 **Fase 3 — Tempo Real e Escala**
 - [x] Cliente WebSocket embutido no dashboard (STOMP/SockJS), atualização sem rerun/polling
 - [x] Persistência histórica de previsões (PostgreSQL / TimescaleDB)
@@ -153,18 +191,40 @@ curl "http://localhost:8080/api/v1/predictions/AAPL/history?page=0&size=10"
 
 ```bash
 # Ver quantas previsões já foram avaliadas e qual a % de acerto de direção
+=======
+`AccuracyEvaluationService` corre diariamente (cron configurável via
+`trendpulse.accuracy.cron` / env `ACCURACY_JOB_CRON`, default 22:00),
+procura previsões com mais de um dia sem `actualPrice` preenchido, consulta
+o preço real mais recente de cada símbolo (via um cliente HTTP dedicado ao
+endpoint público do Yahoo Finance, independente do ml-engine/Python), e
+grava `actualPrice`/`actualReturn`, fechando o loop entre "o que o modelo
+previu" e "o que realmente aconteceu":
+
+```bash
+>>>>>>> Stashed changes
 curl "http://localhost:8080/api/v1/predictions/AAPL/accuracy"
 # {"symbol":"AAPL","totalEvaluated":12,"correctDirection":8,"accuracyRate":0.667,"averageConfidence":0.61}
 ```
 
-**API versionada e paginada:** todos os endpoints migraram de `/api/predictions/...` para `/api/v1/predictions/...`, e `/history` usa paginação real do Spring Data (`page`/`size`, resposta com `totalElements`/`totalPages`) em vez de um `limit` fixo — permite navegar por todo o histórico, não só ver os últimos N registos.
+### Resiliência
 
-No dashboard, a secção **"🎯 Accuracy histórica"** consome estes dois endpoints diretamente e mostra:
-- Métricas agregadas (previsões avaliadas, acertos de direção, % de accuracy)
-- Um gráfico de linhas "Previsto vs. Real" ao longo do tempo
+- Dead-Letter Queue: a queue `market.predictions.queue` está associada a
+  uma dead-letter-exchange. Combinado com retry (5 tentativas, backoff
+  exponencial), uma mensagem que falhe repetidamente acaba em
+  `market.predictions.dlq` em vez de ser perdida ou bloquear a fila
+  principal.
+- Validação defensiva: `MarketDataListener` rejeita mensagens com `symbol`
+  em falta ou `confidence` fora de `[0,1]`, lançando uma exceção explícita.
+- Retry com backoff no dashboard: `fetch_market_data` (Python) tenta até 3
+  vezes com backoff exponencial antes de desistir de obter dados do Yahoo
+  Finance.
+- Spring Boot Actuator (`/actuator/health`) reporta o estado agregado da
+  aplicação, incluindo RabbitMQ e base de dados — usado pelos healthchecks
+  do Docker Compose.
 
-## 🛡️ Resiliência e Observabilidade
+### Observabilidade (Micrometer + Prometheus + Grafana)
 
+<<<<<<< Updated upstream
 - **Dead-Letter Queue (RabbitMQ):** a queue `market.predictions.queue` está associada a uma dead-letter-exchange. Combinado com a política de retry (`spring.rabbitmq.listener.simple.retry`, 5 tentativas com backoff exponencial), uma mensagem que falhe repetidamente (JSON malformado, exceção no listener) acaba automaticamente em `market.predictions.dlq` — visível na Management UI do RabbitMQ (`http://localhost:15672`) — em vez de ser perdida ou bloquear a fila principal.
 - **Validação defensiva no listener:** `MarketDataListener` rejeita mensagens com `symbol` em falta ou `confidence` fora de `[0,1]`, lançando uma exceção explícita em vez de propagar dados inválidos para os clientes WebSocket ou para a base de dados.
 - **Retry com backoff no dashboard:** `fetch_market_data` (Python) tenta até 3 vezes com backoff exponencial (1s, 2s, 4s) antes de desistir de obter dados do Yahoo Finance, e mostra um botão "Tentar novamente" em vez de um stack trace cru.
@@ -175,42 +235,56 @@ No dashboard, a secção **"🎯 Accuracy histórica"** consome estes dois endpo
 O pipeline de processamento de previsões (RabbitMQ → TimescaleDB → WebSocket) está instrumentado ponta-a-ponta com [Micrometer](https://micrometer.io/), expostas em `/actuator/prometheus` e visualizadas num dashboard Grafana já provisionado — sem necessidade de configuração manual.
 
 **Métricas capturadas** (`MarketDataListener`):
+=======
+O pipeline (RabbitMQ → TimescaleDB → WebSocket) está instrumentado
+ponta-a-ponta, exposto em `/actuator/prometheus`:
+>>>>>>> Stashed changes
 
 | Métrica | Tipo | O que mede |
 |---|---|---|
-| `trendpulse_prediction_total_duration_seconds` | Timer (histograma, p50/p95/p99) | Latência **end-to-end**: da receção da mensagem RabbitMQ até à difusão WebSocket concluída |
+| `trendpulse_prediction_total_duration_seconds` | Timer (p50/p95/p99) | Latência end-to-end: receção RabbitMQ até difusão WebSocket concluída |
 | `trendpulse_prediction_persist_duration_seconds` | Timer, tagged por `symbol` | Latência isolada da escrita em TimescaleDB |
 | `trendpulse_prediction_broadcast_duration_seconds` | Timer, tagged por `symbol` | Latência isolada da difusão via WebSocket |
-| `trendpulse_predictions_processed_total` | Counter, tagged por `symbol`/`trend` | Previsões processadas com sucesso — combinado com `rate()` no Prometheus dá o **throughput** (previsões/segundo) |
-| `trendpulse_predictions_failed_total` | Counter, tagged por `symbol` | Falhas de validação/processamento — permite alertar se a taxa de erro subir |
-| `http_server_requests_seconds` | Timer (automático, via Actuator) | Latência de todos os endpoints REST (`/api/v1/predictions/...`), sem código adicional |
+| `trendpulse_predictions_processed_total` | Counter, tagged por `symbol`/`trend` | Previsões processadas com sucesso (com `rate()`, dá o throughput) |
+| `trendpulse_predictions_failed_total` | Counter, tagged por `symbol` | Falhas de validação/processamento |
+| `http_server_requests_seconds` | Timer (automático, via Actuator) | Latência de todos os endpoints REST |
 
-Decompor a latência total em "persistência" vs. "broadcast" (em vez de só medir o tempo total) permite identificar exatamente onde está o gargalo se a latência subir — por exemplo, distinguir uma TimescaleDB lenta de um problema no broker WebSocket.
+Decompor a latência total em persistência vs. broadcast permite identificar
+onde está o gargalo se a latência subir. O dashboard Grafana
+(`monitoring/grafana/dashboards/trendpulse-latency-throughput.json`) é
+carregado automaticamente no arranque, com 8 painéis: throughput agregado,
+taxa de erro, latência p95/p99 end-to-end, séries temporais de p50/p95/p99,
+decomposição persistência vs. broadcast, throughput por símbolo, e latência
+p95 dos endpoints REST.
 
-**Dashboard Grafana pré-configurado:** o ficheiro `monitoring/grafana/dashboards/trendpulse-latency-throughput.json` é carregado automaticamente no arranque (via provisioning), com 8 painéis: throughput agregado, taxa de erro, latência p95/p99 end-to-end, séries temporais de p50/p95/p99, decomposição persistência vs. broadcast, throughput por símbolo, e latência p95 dos endpoints REST.
-
-```bash
-docker compose up -d --build
-# Prometheus: http://localhost:9090
-# Grafana:    http://localhost:3000 (admin/admin, ou acesso anónimo como Viewer)
-```
-
-Depois de publicares algumas previsões (aba "📤 Publicar" do dashboard, ou `manual_rabbitmq_publish.py`), os gráficos populam-se em tempo real — útil para tirar um screenshot com dados reais para um portfolio/CV.
+`MarketDataListenerTest` inclui asserções diretas sobre o `MeterRegistry`
+(um `SimpleMeterRegistry` real, não mock), confirmando que os counters e
+timers corretos são incrementados após cada previsão processada ou falhada.
 
 ![Latência p95/p99 end-to-end no Grafana](docs/screenshots/grafana-latency.png)
 *Latência end-to-end (RabbitMQ → TimescaleDB → WebSocket) capturada em ambiente local: p95 = 127ms, p99 = 133ms.*
 
-**Testado:** `MarketDataListenerTest` inclui asserções diretas sobre o `MeterRegistry` (não um mock — um `SimpleMeterRegistry` real), confirmando que os counters e timers corretos são incrementados/registados após cada previsão processada ou falhada.
+### Dashboard
 
+<<<<<<< Updated upstream
 ##  Testes
+=======
+Interface Streamlit com tema escuro próprio (fundo `#0A0E1A`, acento teal
+`#2DD4BF` para alta e coral `#FB7185` para baixa), tipografia dedicada
+(Space Grotesk para títulos, Inter para texto corrido, JetBrains Mono para
+valores numéricos), navegação em separadores (`st.tabs`) para análise,
+feed ao vivo, accuracy histórica e publicação manual, cartões de métricas
+em HTML/CSS próprio em vez de `st.metric`, um gauge de confiança calibrado
+ao intervalo real observado (50%-95%), e a anotação do preço previsto
+diretamente sobre o gráfico de velas.
+>>>>>>> Stashed changes
 
-**Backend (Java) — JUnit 5 + Mockito:**
-```bash
-cd core-backend
-mvn test
-```
-`MarketDataListenerTest` isola a lógica de negócio (validação, persistência, broadcast) de qualquer infraestrutura real via mocks — corre em milissegundos, sem exigir RabbitMQ nem base de dados. `CoreBackendApplicationTests` verifica que o contexto Spring arranca (usa H2 em memória em vez do TimescaleDB real, ver `src/test/resources/application.yml`).
+Cache com TTL adaptado ao período pedido (5 min para períodos curtos, 1h
+para períodos longos, já que histórico "antigo" praticamente não muda), e
+fecho explícito da ligação WebSocket anterior ao trocar de ativo, para
+evitar ligações penduradas.
 
+<<<<<<< Updated upstream
 **ML Engine (Python) — pytest:**
 ```bash
 cd ml-engine
@@ -239,23 +313,19 @@ pytest tests/ -v
 - **Limpeza explícita do WebSocket:** ao trocar de ativo, a ligação STOMP anterior é fechada explicitamente antes de abrir a nova (registo partilhado em `window.top.__tpActiveSockets`), evitando ligações penduradas mesmo em cenários onde o browser não recicla o iframe automaticamente.
 
 ##  Como Executar Localmente
+=======
+## Setup
+>>>>>>> Stashed changes
 
 ### Opção A — Docker Compose (recomendado)
 
-A stack completa (RabbitMQ + TimescaleDB + Core Backend + Dashboard) sobe com um único comando. O primeiro build demora alguns minutos (compila o Java e instala as dependências Python); as próximas execuções são rápidas.
-
 ```bash
-# 1. Sobe RabbitMQ + Core Backend + Dashboard
 docker compose up -d --build
-
-# 2. Treina o modelo (job separado, corre uma vez e termina)
-docker compose --profile training run --rm ml-trainer
-
-# 3. Reinicia o dashboard para que apanhe o modelo recém-treinado
-docker compose restart dashboard
+docker compose --profile training run --rm ml-trainer   # treina o modelo (job único)
+docker compose restart dashboard                          # apanha o modelo recém-treinado
 ```
 
-Serviços disponíveis:
+Serviços:
 
 | Serviço | URL |
 |---|---|
@@ -263,35 +333,36 @@ Serviços disponíveis:
 | Core Backend (REST/WS) | http://localhost:8080 |
 | RabbitMQ Management UI | http://localhost:15672 (guest/guest) |
 | TimescaleDB | localhost:5432 (trendpulse/trendpulse) |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 (admin/admin) |
 
-Para retreinar o modelo mais tarde (ex: com outros tickers ou período):
+`ml-trainer` corre atrás de um Docker Compose profile (`training`) e não
+sobe automaticamente com `docker compose up` — é um job pontual, não um
+serviço de longa duração. O modelo treinado fica num volume Docker
+partilhado (`ml-models`), lido pelo `dashboard` em runtime. Para retreinar
+com outros tickers/período:
 
 ```bash
 docker compose --profile training run --rm ml-trainer --tickers AAPL BTC-USD --period 3y
 docker compose restart dashboard
 ```
 
-Para parar tudo:
-
 ```bash
-docker compose down          # mantém os volumes (dados do RabbitMQ, modelo treinado)
+docker compose down          # mantém volumes (dados RabbitMQ, modelo treinado)
 docker compose down -v       # remove também os volumes
 ```
-
-> Nota de arquitetura: o `ml-trainer` corre atrás de um Docker Compose *profile* (`training`), por isso não sobe automaticamente com `docker compose up` — é um job pontual, não um serviço de longa duração. O modelo treinado fica num volume Docker partilhado (`ml-models`), lido pelo `dashboard` em runtime.
 
 ### Opção B — Execução manual (sem Docker)
 
 ```bash
-# 0. RabbitMQ + TimescaleDB (broker + base de dados)
+# 0. RabbitMQ + TimescaleDB
 docker compose up -d rabbitmq timescaledb
-# RabbitMQ UI: http://localhost:15672 (guest/guest)
 
 # 1. Core Backend
 cd core-backend
 mvn spring-boot:run
 
-# 2. ML Engine — treinar o modelo (só precisa de ser feito uma vez, ou quando quiseres reciclar)
+# 2. ML Engine — treinar o modelo
 cd ml-engine
 pip install -r requirements.txt
 python train_model.py
@@ -302,38 +373,117 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+## Usage
+
+### Treinar/retreinar o modelo
+
+```bash
+cd ml-engine
+python train_model.py                                   # 5 ativos por defeito
+python train_model.py --tickers AAPL MSFT --period 1y    # personalizado
+```
+
 ### Testar o fluxo ponta-a-ponta (Python → RabbitMQ → Java)
 
-Com o RabbitMQ e o Core Backend a correr, publica uma mensagem de teste diretamente sem passar pelo dashboard:
+Com RabbitMQ e Core Backend a correr, publica uma mensagem de teste
+diretamente, sem passar pelo dashboard:
 
 ```bash
 cd ml-engine/tests
 python manual_rabbitmq_publish.py --symbol AAPL
 ```
 
-Deverás ver nos logs do `core-backend` uma linha como:
-
-```
-INFO ... MarketDataListener : Previsão recebida do ML Engine: AAPL -> preço previsto=197.1 (confiança=0.65)
-```
-
-Isto confirma que a mensagem percorreu: `pika` (Python) → exchange `market.predictions.exchange` → queue `market.predictions.queue` → `@RabbitListener` (Java). O mesmo fluxo pode ser acionado a partir da UI do dashboard, no expander "Publicação assíncrona (RabbitMQ)".
+Confirma o percurso `pika` (Python) → exchange `market.predictions.exchange`
+→ queue `market.predictions.queue` → `@RabbitListener` (Java) através dos
+logs do `core-backend`. O mesmo fluxo pode ser acionado a partir da UI do
+dashboard, no separador de publicação.
 
 ### Ver a atualização em tempo real no browser
 
-O dashboard tem agora uma secção **"📡 Previsão ao vivo (WebSocket)"** com um cliente STOMP/SockJS embutido, ligado diretamente a `ws://localhost:8080/ws-market`. Este painel:
+O separador "Previsão ao vivo" do dashboard tem um cliente STOMP/SockJS
+embutido, ligado a `ws://localhost:8080/ws-market`, subscrevendo
+`/topic/predictions/<symbol>`. Os valores (preço atual, previsto,
+tendência, confiança) atualizam-se diretamente no DOM via JavaScript
+assim que `MarketDataListener` publica no tópico — sem rerun do Streamlit.
 
-1. Estabelece a ligação assim que a página carrega (indicador "● Ligado" a verde)
-2. Subscreve `/topic/predictions/<symbol>` para o ativo selecionado na sidebar
-3. Atualiza os valores (Preço Atual, Previsto, Tendência, Confiança) e o log de mensagens **sem qualquer rerun do Streamlit** — a atualização é feita diretamente no DOM pelo JavaScript, assim que o `MarketDataListener` (Java) publica no tópico
+Nota: a sidebar tem duas URLs separadas para o Core Backend, porque correm
+em contextos diferentes — a URL pública (usada pelo cliente WebSocket, que
+corre no browser, tipicamente `http://localhost:8080`) e a URL interna
+(usada pelas chamadas REST feitas pelo próprio processo Python do
+dashboard; com `docker compose`, `http://core-backend:8080`, via
+`BACKEND_INTERNAL_URL`). Se aparecer o aviso de falha ao obter o histórico
+de accuracy, é quase sempre a URL interna que está errada para o cenário
+em causa.
 
-Para testar: com o RabbitMQ, Core Backend e Dashboard todos a correr, clica em "Publicar previsão na fila" (ou corre `manual_rabbitmq_publish.py`) e observa o painel "Live feed" atualizar-se instantaneamente, sem tocares em nada mais.
+### Consultar histórico de previsões
 
-> Nota: a sidebar tem **duas URLs separadas** para o Core Backend, porque correm em dois sítios diferentes:
-> - **"URL pública (WebSocket, no browser)"** — usada pelo cliente STOMP/SockJS, que corre no teu browser. Quase sempre `http://localhost:8080`, mesmo com Docker (o browser está sempre fora do container).
-> - **"URL interna (REST, server-side)"** — usada pelas chamadas de histórico/accuracy, feitas pelo próprio processo Python do dashboard. Com `docker compose`, usa `http://core-backend:8080` (nome do serviço na rede Docker — já vem pré-configurado via `BACKEND_INTERNAL_URL`); a correr fora do Docker, usa `http://localhost:8080`, igual ao campo de cima.
->
-> Se vires o aviso "Não foi possível ligar ao Core Backend para obter o histórico de accuracy", é quase sempre a **URL interna** que está errada para o teu cenário (localhost vs. nome do serviço Docker).
+```bash
+curl "http://localhost:8080/api/v1/predictions/AAPL/history?page=0&size=10"
+```
 
----
+### Testes
 
+```bash
+# Backend (Java) — JUnit 5 + Mockito
+cd core-backend
+mvn test
+
+# ML Engine (Python) — pytest
+cd ml-engine
+pip install -r requirements.txt
+pytest tests/ -v
+```
+
+`MarketDataListenerTest` isola a lógica de negócio (validação, persistência,
+broadcast) via mocks, e corre em milissegundos sem exigir RabbitMQ nem base
+de dados real; `CoreBackendApplicationTests` verifica que o contexto Spring
+arranca, usando H2 em memória em vez de TimescaleDB. `test_features.py`
+valida a engenharia de features com dados sintéticos (sem depender de
+rede/yfinance); `test_predict.py` valida a camada de inferência, incluindo
+o fallback quando o modelo não existe e a classificação de tendência
+(UP/DOWN/NEUTRAL).
+
+## Tech Stack
+
+| Camada | Tecnologia | Finalidade |
+|---|---|---|
+| Core Backend | Java 17, Spring Boot 3 | Orquestração, WebSockets, integração AMQP |
+| Mensageria | RabbitMQ (Spring AMQP) | Comunicação assíncrona entre serviços |
+| Comunicação Real-Time | WebSocket (STOMP/SockJS) | Difusão de previsões em baixa latência |
+| Persistência | PostgreSQL + TimescaleDB, Spring Data JPA | Histórico de previsões particionado por tempo |
+| ML Engine | Python 3.11, scikit-learn | Modelação preditiva de séries temporais |
+| Dados de Mercado | yfinance | Ingestão de dados históricos e em tempo real |
+| Indicadores Técnicos | pandas-ta | Cálculo de SMA, RSI e outros indicadores |
+| Frontend | Streamlit, Plotly | Dashboard interativo |
+| Observabilidade | Spring Boot Actuator, Micrometer, Prometheus, Grafana | Health checks, métricas de latência/throughput, dashboards |
+| Resiliência | RabbitMQ DLQ, retry com backoff (Java + Python) | Tolerância a falhas transitórias |
+| Testes | JUnit 5, Mockito, pytest | Testes unitários backend e ml-engine |
+| Build/Dependências | Maven, pip | Gestão de dependências dos módulos |
+
+## Limitations
+
+- Ingestão de dados de mercado é por pedido (via `yfinance`), não um stream
+  contínuo near-real-time — item ainda por implementar do roadmap original.
+- O dashboard não tem autenticação nem suporte a múltiplos utilizadores.
+- Não há pipeline de CI/CD configurado (GitHub Actions) — os testes correm
+  apenas localmente.
+- O broker WebSocket é o *simple broker* em memória do próprio Spring
+  (`registry.enableSimpleBroker`), não um broker de mensagens de produção
+  com clustering — não escala horizontalmente para múltiplas instâncias do
+  Core Backend sem trabalho adicional (ex: um broker relay externo).
+- A confiança apresentada para as previsões do modelo é heurística (derivada
+  da variância entre as árvores do `RandomForestRegressor`), não uma
+  probabilidade calibrada estatisticamente.
+- O fallback de previsão (cruzamento de SMA 20/50) é uma heurística simples,
+  usada apenas quando o modelo treinado não está disponível — não tem a
+  mesma base estatística que o modelo treinado.
+- O job diário de accuracy depende de um endpoint público não-oficial do
+  Yahoo Finance para obter o preço real; se esse endpoint mudar ou ficar
+  indisponível, a avaliação de accuracy fica adiada até ao próximo ciclo.
+- Os testes do Core Backend usam H2 em memória em vez do TimescaleDB real —
+  cobrem a lógica de negócio, não o comportamento específico da extensão
+  TimescaleDB (particionamento, hypertables) em condições reais.
+- `TimescaleDbInitializer` falha de forma silenciosa (só regista um aviso)
+  se a extensão `timescaledb` não estiver disponível — a aplicação continua
+  a funcionar como PostgreSQL simples, sem o utilizador ser alertado de
+  forma mais visível do que um log.
